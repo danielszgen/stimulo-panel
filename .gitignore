@@ -3,3 +3,6 @@ node_modules/
 *.log
 dist/
 .env
+
+# Tooling local de preview (no necesario en el repo)
+.claude/
