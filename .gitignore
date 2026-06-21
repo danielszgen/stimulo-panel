@@ -6,3 +6,4 @@ dist/
 
 # Tooling local de preview (no necesario en el repo)
 .claude/
+.vercel
