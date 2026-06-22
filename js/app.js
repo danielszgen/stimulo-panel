@@ -43,6 +43,25 @@ const estadoById = (id) => ESTADOS.find((e) => e.id === id) || ESTADOS[0];
 const MOD_INDEX = {};
 SECCIONES.forEach((sec) => sec.modulos.forEach((m) => (MOD_INDEX[m.id] = { ...m, _sec: sec })));
 
+/* Índice de apartados por clave (label + icono) */
+const APARTADO_INDEX = {};
+(typeof APARTADOS !== "undefined" ? APARTADOS : []).forEach((a) => (APARTADO_INDEX[a.key] = a));
+
+/* Índice de clases por número (p. ej. "1.1.1"), si existe el manifiesto */
+const CLASE_INDEX = {};
+if (typeof CLASES !== "undefined") {
+  Object.keys(CLASES).forEach((modId) =>
+    Object.keys(CLASES[modId]).forEach((apaKey) =>
+      CLASES[modId][apaKey].forEach((c) => {
+        CLASE_INDEX[c.num] = { ...c, moduloId: modId, apartadoKey: apaKey };
+      })
+    )
+  );
+}
+function clasesDe(moduloId, apartadoKey) {
+  return (typeof CLASES !== "undefined" && CLASES[moduloId] && CLASES[moduloId][apartadoKey]) || [];
+}
+
 /* ---------- Componentes reutilizables ---------- */
 function avatar(member, cls = "") {
   if (!member) return `<span class="avatar avatar-gray ${cls}">·</span>`;
@@ -292,9 +311,29 @@ function openModal(id) {
   let sections = "";
   APARTADOS.forEach((a) => {
     const rendered = renderContenido(m[a.key]);
+    const clases = clasesDe(m.id, a.key);
+    let clasesHtml = "";
+    if (clases.length) {
+      const items = clases
+        .map(
+          (c) => `<button class="clase-item" data-clase="${c.num}">
+            <span class="clase-num">${esc(c.num)}</span>
+            <span class="clase-text"><span class="clase-titulo">${esc(c.titulo)}</span>
+              <span class="clase-meta">📄 PDF · ${c.pages.length} pág.</span></span>
+            <span class="clase-go">›</span>
+          </button>`
+        )
+        .join("");
+      clasesHtml = `<div class="clase-list">
+        <div class="clase-list-head">Clases de este apartado (${clases.length})</div>
+        ${items}
+      </div>`;
+    }
+    const body = rendered || (clases.length ? "" : '<p class="muted">Apartado por completar.</p>');
     sections += `<div class="modal-section">
       <div class="modal-section-head"><span>${a.icono}</span><h3>${a.label}</h3></div>
-      <div class="modal-section-body">${rendered || '<p class="muted">Apartado por completar.</p>'}</div>
+      <div class="modal-section-body">${body}</div>
+      ${clasesHtml}
     </div>`;
   });
 
@@ -317,6 +356,7 @@ function openModal(id) {
     ${sections}
   `;
   $("#modal-mod-status").onchange = (e) => { Store.setModuleStatus(id, e.target.value); };
+  $("#modal-content").querySelectorAll("[data-clase]").forEach((el) => (el.onclick = () => openClase(el.dataset.clase)));
   $("#modal-overlay").classList.add("active");
   document.body.style.overflow = "hidden";
 }
@@ -324,6 +364,41 @@ function closeModal() {
   $("#modal-overlay").classList.remove("active");
   document.body.style.overflow = "";
   if (currentView === "modulos") renderModulos();
+}
+
+/* ---------- Página de una clase (sub-apartado) ---------- */
+function openClase(num) {
+  const c = CLASE_INDEX[num];
+  if (!c) return;
+  const m = MOD_INDEX[c.moduloId];
+  const apa = APARTADO_INDEX[c.apartadoKey] || { label: "", icono: "" };
+  const eyebrow = `${m ? esc(m.titulo) : ""} · ${apa.icono} ${esc(apa.label)} · Clase ${esc(c.num)}`;
+
+  const paginas = c.pages.length
+    ? c.pages.map((p, i) => `<img class="clase-page" src="${p}" alt="${esc(c.titulo)} — página ${i + 1}" loading="lazy" />`).join("")
+    : '<p class="muted">Esta clase aún no tiene contenido renderizado.</p>';
+
+  $("#clase-content").innerHTML = `
+    <div class="clase-header">
+      <div class="clase-head-text">
+        <div class="eyebrow">${eyebrow}</div>
+        <h2>${esc(c.titulo)}</h2>
+      </div>
+      <a class="btn btn-primary clase-dl" href="${c.pdf}" download>⬇ Descargar PDF</a>
+    </div>
+    <div class="clase-doc">${paginas}</div>
+    <div class="clase-foot">
+      <a class="btn btn-ghost" href="${c.pdf}" target="_blank" rel="noopener">Abrir PDF en pestaña nueva</a>
+    </div>
+  `;
+  $("#clase-overlay").classList.add("active");
+  document.body.style.overflow = "hidden";
+  $("#clase-content").scrollTop = 0;
+}
+function closeClase() {
+  $("#clase-overlay").classList.remove("active");
+  // El modal de módulo puede seguir abierto debajo; solo restauramos scroll si no hay overlays activos.
+  if (!$("#modal-overlay").classList.contains("active")) document.body.style.overflow = "";
 }
 
 /* ============================================================
@@ -468,10 +543,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // Modales
   $("#modal-close").onclick = closeModal;
   $("#modal-overlay").onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
+  $("#clase-close").onclick = closeClase;
+  $("#clase-overlay").onclick = (e) => { if (e.target === e.currentTarget) closeClase(); };
   $("#task-close").onclick = closeTaskForm;
   $("#task-overlay").onclick = (e) => { if (e.target === e.currentTarget) closeTaskForm(); };
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModal(); closeTaskForm(); closePicker(); }
+    if (e.key !== "Escape") return;
+    // Si la clase está abierta, Escape solo la cierra (el módulo sigue debajo).
+    if ($("#clase-overlay").classList.contains("active")) { closeClase(); return; }
+    closeModal(); closeTaskForm(); closePicker();
   });
 
   boot();
